@@ -52,11 +52,15 @@ CMD ["pnpm", "dev:studio"]
 # Compile Next.js
 FROM dev AS builder
 
-# Give Node plenty of heap headroom so `next build` doesn't OOM on small servers
-# (this is the #1 cause of the build dying with exit 1 on a 1–4 GB VM). The
-# installer adds swap; this lets Node actually grow into it. Override if needed:
-#   docker build --build-arg NODE_BUILD_MEMORY=6144 ...
-ARG NODE_BUILD_MEMORY=4096
+# `next build`'s "Collecting page data" phase fans out into N parallel Node
+# worker processes, EACH with its own heap. On a small server the default
+# fan-out gets SIGKILL-ed by the kernel OOM-killer. So we cap BOTH the number of
+# workers (NEXT_BUILD_WORKERS → next.config experimental.cpus) and each worker's
+# heap. Default ≈ 2 workers × 2 GB ≈ 4 GB peak (fits a 4 GB VM, the installer
+# also adds swap). Big machine? Speed it up: --build-arg NEXT_BUILD_WORKERS=6.
+ARG NEXT_BUILD_WORKERS=2
+ARG NODE_BUILD_MEMORY=2048
+ENV NEXT_BUILD_WORKERS=${NEXT_BUILD_WORKERS}
 ENV NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_MEMORY}"
 RUN pnpm --filter studio exec next build
 

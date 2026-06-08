@@ -50,6 +50,13 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     clientRouterFilter: false,
+    // Self-hosted Docker builds set NEXT_BUILD_WORKERS to cap the number of
+    // "Collecting page data" workers. Each worker is a separate Node process
+    // with its own heap, so on a small server the default fan-out gets the
+    // build OOM-killed (SIGKILL). Unset (CI / Vercel) keeps Next's default.
+    ...(process.env.NEXT_BUILD_WORKERS
+      ? { cpus: Number(process.env.NEXT_BUILD_WORKERS) }
+      : {}),
   },
   async rewrites() {
     return [
