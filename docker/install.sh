@@ -275,7 +275,9 @@ maybe_swap() {
 # ----------------------------------------------------------------------------
 # Helpers to read/write .env safely (values contain / + = etc.)
 # ----------------------------------------------------------------------------
-get_env() { grep "^$1=" .env | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# Total (never returns non-zero): a missing key must not trip `set -e`/the ERR
+# trap when used as `x="$(get_env KEY)"` on a half-written .env during a re-run.
+get_env() { grep "^$1=" .env 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r' || true; }
 set_env() {
   local key="$1" val="$2"
   if grep -q "^${key}=" .env; then
@@ -334,6 +336,11 @@ configure_env() {
     [ -f .env ] && { cp .env ".env.bak.$(date +%s)"; warn "Backed up existing .env"; }
     log "Generating secrets and API keys into .env"
     cp .env.example .env
+    chmod 600 .env   # .env holds every secret — keep it private from other local users
+    # add-new-auth-keys.sh may shell out to `docker run node:...`; on a fresh,
+    # non-root install the account isn't in the docker group yet, so hand it a
+    # privileged docker. (Empty $SUDO → plain "docker" for root.)
+    export DOCKER="${SUDO:+$SUDO }docker"
     sh utils/generate-keys.sh --update-env >/dev/null
     ok "core secrets + legacy ANON/SERVICE keys"
     sh utils/add-new-auth-keys.sh --update-env >/dev/null
@@ -395,6 +402,7 @@ prepare_dirs() {
   mkdir -p volumes/www volumes/sftp/ssh volumes/proxy/nginx/sites volumes/functions
   # env_file target must exist for older Compose versions; empty is fine.
   [ -f volumes/functions/.env ] || { printf '%s\n' '# Managed by Supabase Studio — edge function secrets' > volumes/functions/.env; }
+  chmod 600 volumes/functions/.env 2>/dev/null || true   # holds edge-function secrets
   # Persistent SFTP host keys so the fingerprint stays stable across restarts.
   if command -v ssh-keygen >/dev/null 2>&1 && [ -z "$(ls -A volumes/sftp/ssh 2>/dev/null)" ]; then
     ssh-keygen -t ed25519 -f volumes/sftp/ssh/ssh_host_ed25519_key -N '' -q 2>/dev/null || true
@@ -472,6 +480,9 @@ print_summary() {
   local pgpass; pgpass="$(get_env POSTGRES_PASSWORD)"
 
   local out="$DOCKER_DIR/ACCESS-CREDENTIALS.txt"
+  # Create the file private up front so `tee` never briefly exposes secrets to
+  # other local users (closes the create-world-readable-then-chmod TOCTOU window).
+  ( umask 077; : > "$out" )
   {
     echo "==================== SUPABASE SELF-HOSTED — ACCESS ===================="
     echo "Generated: $(date)"

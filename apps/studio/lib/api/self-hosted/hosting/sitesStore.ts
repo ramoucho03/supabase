@@ -47,7 +47,9 @@ export type CreateSiteInput = {
   apiProxy?: boolean
 }
 
-export type UpdateSiteInput = Partial<Omit<CreateSiteInput, 'slug'>>
+// `docroot` is fixed at creation; updateSite never changes it, so keep it out
+// of the patch type rather than silently ignoring it.
+export type UpdateSiteInput = Partial<Omit<CreateSiteInput, 'slug' | 'docroot'>>
 
 export class FileSystemSitesStore {
   private readonly registryPath: string
@@ -180,11 +182,13 @@ export class FileSystemSitesStore {
     const site = registry.sites.find((s) => s.slug === slug)
     if (!site) return undefined
 
+    // Remove the files first: if this fails (e.g. permissions), the site stays
+    // registered and visible — consistent — rather than leaving orphaned files
+    // under the hosting root that a later same-slug create would re-serve.
+    await rm(this.resolveDocroot(site.docroot), { recursive: true, force: true })
+
     registry.sites = registry.sites.filter((s) => s.slug !== slug)
     await this.writeRegistry(registry)
-
-    // Remove the docroot from disk.
-    await rm(this.resolveDocroot(site.docroot), { recursive: true, force: true })
     return site
   }
 
@@ -218,7 +222,11 @@ export class FileSystemSitesStore {
     return readFile(this.resolveWithinDocroot(docroot, relativePath), 'utf8')
   }
 
-  /** Writes files into the docroot. When `replace` is true the docroot is cleared first. */
+  /**
+   * Writes files into the docroot. With `replace`, the new content is staged in
+   * a temp dir and atomically swapped in, so a failure mid-deploy (bad zip entry,
+   * disk error) never wipes the live site.
+   */
   async writeFiles(
     docroot: string,
     files: SiteFileInput[],
@@ -226,11 +234,50 @@ export class FileSystemSitesStore {
   ): Promise<void> {
     const docrootPath = this.resolveDocroot(docroot)
 
-    if (replace) {
-      await rm(docrootPath, { recursive: true, force: true })
+    // Reject any path escape up front so a single bad entry can't leave the site
+    // half-written (or, in replace mode, wiped then aborted).
+    for (const file of files) {
+      this.resolveWithinDocroot(docroot, file.name)
     }
-    await mkdir(docrootPath, { recursive: true })
 
+    if (replace) {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const tmpRoot = `${docrootPath}.tmp-${stamp}`
+      const backup = `${docrootPath}.old-${stamp}`
+      await rm(tmpRoot, { recursive: true, force: true })
+      await mkdir(tmpRoot, { recursive: true })
+      try {
+        for (const file of files) {
+          const rel = path.relative(docrootPath, this.resolveWithinDocroot(docroot, file.name))
+          const target = path.join(tmpRoot, rel)
+          await mkdir(path.dirname(target), { recursive: true })
+          await writeFile(target, file.content)
+        }
+
+        // Swap atomically: move the live docroot aside, move the staged dir in,
+        // then drop the old copy. Roll back if the final move fails.
+        let hadOld = false
+        try {
+          await rename(docrootPath, backup)
+          hadOld = true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+        try {
+          await rename(tmpRoot, docrootPath)
+        } catch (error) {
+          if (hadOld) await rename(backup, docrootPath).catch(() => {})
+          throw error
+        }
+        if (hadOld) await rm(backup, { recursive: true, force: true })
+      } finally {
+        await rm(tmpRoot, { recursive: true, force: true })
+      }
+      return
+    }
+
+    // Merge: overwrite individual files in place.
+    await mkdir(docrootPath, { recursive: true })
     for (const file of files) {
       const target = this.resolveWithinDocroot(docroot, file.name)
       await mkdir(path.dirname(target), { recursive: true })

@@ -12,7 +12,7 @@ export type SiteError = ResponseError
 export async function getSite({ projectRef, slug }: SiteVariables) {
   if (!projectRef) throw new Error('projectRef is required')
   if (!slug) throw new Error('slug is required')
-  return sitesApiFetch<Site>(`/v1/projects/${projectRef}/sites/${slug}`)
+  return sitesApiFetch<Site>(`/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}`)
 }
 
 export const useSiteQuery = <TData = SiteData>(

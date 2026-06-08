@@ -31,7 +31,7 @@ export async function deploySite({ projectRef, slug, files, mode = 'merge' }: Si
   // Don't set Content-Type — the browser adds the multipart boundary.
   const headers = await constructHeaders()
   const response = await fetch(
-    `${BASE_PATH}/api/v1/projects/${projectRef}/sites/${slug}/deploy?mode=${mode}`,
+    `${BASE_PATH}/api/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}/deploy?mode=${mode}`,
     { method: 'POST', body: formData, headers, credentials: 'include' }
   )
 

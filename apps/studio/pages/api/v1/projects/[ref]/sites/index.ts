@@ -34,7 +34,16 @@ const handlePost = async (req: NextApiRequest, res: NextApiResponse) => {
   }
 
   const store = getSitesStore()
-  const site = await store.createSite({ slug, domain, docroot, spaFallback, tls, apiProxy })
+  let site
+  try {
+    site = await store.createSite({ slug, domain, docroot, spaFallback, tls, apiProxy })
+  } catch (error) {
+    // Validation failures (duplicate slug, invalid domain…) carry a useful
+    // message; surface it as a 400 instead of apiWrapper's opaque 500.
+    return res
+      .status(400)
+      .json({ error: { message: error instanceof Error ? error.message : 'Failed to create site' } })
+  }
 
   // Best-effort apply to nginx — the site is registered regardless, so the UI can
   // surface a warning (e.g. when the nginx profile isn't running) without failing.

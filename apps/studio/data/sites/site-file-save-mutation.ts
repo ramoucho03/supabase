@@ -18,11 +18,14 @@ export async function saveSiteFile({ projectRef, slug, path, content }: SiteFile
   if (!projectRef) throw new Error('projectRef is required')
   if (!slug) throw new Error('slug is required')
   if (!path) throw new Error('path is required')
-  return sitesApiFetch<SiteFileSaveResponse>(`/v1/projects/${projectRef}/sites/${slug}/files`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content }),
-  })
+  return sitesApiFetch<SiteFileSaveResponse>(
+    `/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}/files`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    }
+  )
 }
 
 export const useSiteFileSaveMutation = ({

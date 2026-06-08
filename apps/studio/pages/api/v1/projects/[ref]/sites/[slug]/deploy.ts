@@ -85,6 +85,14 @@ const handlePost = async (req: NextApiRequest, res: NextApiResponse) => {
     return res.status(400).json({ error: { message: 'No files provided' } })
   }
 
-  await store.writeFiles(site.docroot, files, { replace })
+  try {
+    await store.writeFiles(site.docroot, files, { replace })
+  } catch (error) {
+    // A bad archive entry (e.g. a path escaping the docroot) is rejected before
+    // anything is overwritten; report it instead of a generic 500.
+    return res
+      .status(400)
+      .json({ error: { message: error instanceof Error ? error.message : 'Failed to deploy files' } })
+  }
   return res.status(200).json({ slug: site.slug, files: files.length, replaced: replace })
 }

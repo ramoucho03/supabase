@@ -20,11 +20,14 @@ export type SiteUpdateResponse = Site & { agentApplied?: boolean; agentError?: s
 export async function updateSite({ projectRef, slug, ...body }: SiteUpdateVariables) {
   if (!projectRef) throw new Error('projectRef is required')
   if (!slug) throw new Error('slug is required')
-  return sitesApiFetch<SiteUpdateResponse>(`/v1/projects/${projectRef}/sites/${slug}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  return sitesApiFetch<SiteUpdateResponse>(
+    `/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  )
 }
 
 export const useSiteUpdateMutation = ({

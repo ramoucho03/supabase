@@ -12,7 +12,9 @@ export type SiteFilesError = ResponseError
 export async function getSiteFiles({ projectRef, slug }: SiteFilesVariables) {
   if (!projectRef) throw new Error('projectRef is required')
   if (!slug) throw new Error('slug is required')
-  return sitesApiFetch<SiteFileEntry[]>(`/v1/projects/${projectRef}/sites/${slug}/files`)
+  return sitesApiFetch<SiteFileEntry[]>(
+    `/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}/files`
+  )
 }
 
 export const useSiteFilesQuery = <TData = SiteFilesData>(

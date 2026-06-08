@@ -1,5 +1,5 @@
 import { useParams } from 'common'
-import { ExternalLink, FilePlus, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { ExternalLink, FilePlus, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { useEffect, useState, type ComponentProps } from 'react'
 import { toast } from 'sonner'
 import {
@@ -90,13 +90,15 @@ export const SiteFilesExplorer = () => {
 
   const isDirty = !!selectedPath && isEditable && loadedContent !== null && editorValue !== loadedContent
 
-  // Sync the editor when freshly loaded content arrives for the selected file.
+  // Seed the editor only on the FIRST load of a file (loadedContent === null).
+  // Guarding on null means a background/post-save refetch never clobbers edits
+  // the user is actively typing.
   useEffect(() => {
-    if (fileContent && fileContent.path === selectedPath) {
+    if (fileContent && fileContent.path === selectedPath && loadedContent === null) {
       setEditorValue(fileContent.content)
       setLoadedContent(fileContent.content)
     }
-  }, [fileContent, selectedPath])
+  }, [fileContent, selectedPath, loadedContent])
 
   const clearSelection = () => {
     setSelectedPath(null)
@@ -137,7 +139,9 @@ export const SiteFilesExplorer = () => {
           toast.success(`Created ${path}`)
           setShowNewFile(false)
           setNewFilePath('')
-          if (isEditableFile(path)) {
+          // Auto-open the new file in the editor, but never discard unsaved edits
+          // in the file that's currently open — leave it be if the buffer is dirty.
+          if (isEditableFile(path) && !isDirty) {
             setSelectedPath(path)
             setEditorValue(template)
             setLoadedContent(template)
@@ -288,14 +292,21 @@ export const SiteFilesExplorer = () => {
                   <AlertError error={contentError} subject="Failed to load file" />
                 </div>
               ) : (
-                <CodeEditor
-                  id={selectedPath}
-                  language={getMonacoLanguage(selectedPath) as MonacoLanguage}
-                  value={editorValue}
-                  loading={isLoadingContent}
-                  className="h-full"
-                  onInputChange={(value) => setEditorValue(value ?? '')}
-                />
+                <>
+                  <CodeEditor
+                    id={selectedPath}
+                    language={getMonacoLanguage(selectedPath) as MonacoLanguage}
+                    value={editorValue}
+                    loading={isLoadingContent}
+                    className="h-full"
+                    onInputChange={(value) => setEditorValue(value ?? '')}
+                  />
+                  {isLoadingContent && loadedContent === null && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-surface-100">
+                      <Loader2 size={20} className="animate-spin text-foreground-light" />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </>

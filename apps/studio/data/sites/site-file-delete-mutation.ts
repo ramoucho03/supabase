@@ -16,7 +16,7 @@ export async function deleteSiteFile({ projectRef, slug, path }: SiteFileDeleteV
   if (!slug) throw new Error('slug is required')
   if (!path) throw new Error('path is required')
   return sitesApiFetch(
-    `/v1/projects/${projectRef}/sites/${slug}/files?path=${encodeURIComponent(path)}`,
+    `/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}/files?path=${encodeURIComponent(path)}`,
     { method: 'DELETE' }
   )
 }

@@ -24,7 +24,13 @@ export async function sitesApiFetch<T = unknown>(
     } catch {
       // ignore non-JSON error bodies
     }
-    handleError(body?.error ?? body ?? { message: `Request failed (status ${response.status})` })
+    const error = body?.error ?? body ?? { message: `Request failed (status ${response.status})` }
+    // Expose the HTTP status as `code` so callers can branch on it (e.g. 404 →
+    // redirect to the list). The Sites API doesn't include a numeric code itself.
+    if (error && typeof error === 'object' && error.code === undefined) {
+      error.code = response.status
+    }
+    handleError(error)
   }
 
   try {

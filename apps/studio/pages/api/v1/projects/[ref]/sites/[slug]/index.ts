@@ -45,7 +45,14 @@ const handlePatch = async (req: NextApiRequest, res: NextApiResponse) => {
   const { domain, spaFallback, tls, apiProxy } = req.body ?? {}
 
   const store = getSitesStore()
-  const site = await store.updateSite(slug, { domain, spaFallback, tls, apiProxy })
+  let site
+  try {
+    site = await store.updateSite(slug, { domain, spaFallback, tls, apiProxy })
+  } catch (error) {
+    return res
+      .status(400)
+      .json({ error: { message: error instanceof Error ? error.message : 'Failed to update site' } })
+  }
 
   let agentApplied = true
   let agentError: string | undefined

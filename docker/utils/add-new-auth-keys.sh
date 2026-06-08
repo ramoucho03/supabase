@@ -33,22 +33,27 @@ else
         echo "Local node $(node -v) is too old (need >= 16), falling back to docker."
     fi
 
-    if ! command -v docker >/dev/null 2>&1; then
+    # Allow the caller (e.g. install.sh running as a non-root sudo user whose
+    # account isn't in the docker group yet) to inject a privileged docker, e.g.
+    # DOCKER="sudo docker". Defaults to plain "docker".
+    DOCKER="${DOCKER:-docker}"
+
+    if ! command -v "${DOCKER%% *}" >/dev/null 2>&1; then
         echo "Error: requires either node (>= 16) or docker."
         exit 1
     fi
 
-    if ! docker info >/dev/null 2>&1; then
+    if ! $DOCKER info >/dev/null 2>&1; then
         echo "Error: docker is installed but the daemon is not running."
         exit 1
     fi
 
-    if ! docker image inspect node:22-alpine >/dev/null 2>&1; then
+    if ! $DOCKER image inspect node:22-alpine >/dev/null 2>&1; then
         echo "Pulling node:22-alpine (first-run only)..."
-        docker pull node:22-alpine
+        $DOCKER pull node:22-alpine
     fi
 
-    node_runner="docker run --rm node:22-alpine node"
+    node_runner="$DOCKER run --rm node:22-alpine node"
 fi
 
 # Read JWT_SECRET from .env

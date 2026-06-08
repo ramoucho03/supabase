@@ -9,7 +9,9 @@ export type SiteDeleteVariables = { projectRef: string; slug: string }
 
 export async function deleteSite({ projectRef, slug }: SiteDeleteVariables) {
   if (!projectRef) throw new Error('projectRef is required')
-  return sitesApiFetch(`/v1/projects/${projectRef}/sites/${slug}`, { method: 'DELETE' })
+  return sitesApiFetch(`/v1/projects/${projectRef}/sites/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+  })
 }
 
 export const useSiteDeleteMutation = ({

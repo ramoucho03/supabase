@@ -75,7 +75,13 @@ const handlePost = async (req: NextApiRequest, res: NextApiResponse) => {
     return res.status(400).json({ error: { message: 'path and content are required' } })
   }
 
-  await store.writeFiles(site.docroot, [{ name: filePath, content }], { replace: false })
+  try {
+    await store.writeFiles(site.docroot, [{ name: filePath, content }], { replace: false })
+  } catch (error) {
+    return res
+      .status(400)
+      .json({ error: { message: error instanceof Error ? error.message : 'Failed to write file' } })
+  }
   return res.status(200).json({ path: filePath })
 }
 
