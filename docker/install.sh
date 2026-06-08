@@ -459,8 +459,11 @@ wait_healthy() {
 # Optional: open firewall ports if ufw is active (always keep SSH open first)
 # ----------------------------------------------------------------------------
 open_firewall() {
-  command -v ufw >/dev/null 2>&1 || return
-  ufw status 2>/dev/null | grep -q "Status: active" || return
+  # Use `return 0`, not a bare `return`: a bare return propagates the non-zero
+  # status of the failed test (e.g. ufw not installed), which under `set -e` +
+  # the ERR trap would abort the whole install right before the summary.
+  command -v ufw >/dev/null 2>&1 || return 0
+  ufw status 2>/dev/null | grep -q "Status: active" || return 0
   log "ufw is active — allowing required ports"
   $SUDO ufw allow 22/tcp   >/dev/null 2>&1 || true
   $SUDO ufw allow 80/tcp   >/dev/null 2>&1 || true
