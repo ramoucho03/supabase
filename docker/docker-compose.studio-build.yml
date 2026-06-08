@@ -18,6 +18,7 @@ services:
       target: production
       args:
         # Cap `next build` memory so it isn't OOM-killed on small servers.
-        # Tiny VM still OOMs? Go lower: NEXT_BUILD_WORKERS=1 sudo bash docker/install.sh
-        NEXT_BUILD_WORKERS: ${NEXT_BUILD_WORKERS:-2}
+        # Default 1 worker = safest (≈2 GB peak). Faster on a big box:
+        # NEXT_BUILD_WORKERS=4 sudo bash docker/install.sh
+        NEXT_BUILD_WORKERS: ${NEXT_BUILD_WORKERS:-1}
         NODE_BUILD_MEMORY: ${NODE_BUILD_MEMORY:-2048}

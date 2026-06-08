@@ -56,9 +56,9 @@ FROM dev AS builder
 # worker processes, EACH with its own heap. On a small server the default
 # fan-out gets SIGKILL-ed by the kernel OOM-killer. So we cap BOTH the number of
 # workers (NEXT_BUILD_WORKERS → next.config experimental.cpus) and each worker's
-# heap. Default ≈ 2 workers × 2 GB ≈ 4 GB peak (fits a 4 GB VM, the installer
-# also adds swap). Big machine? Speed it up: --build-arg NEXT_BUILD_WORKERS=6.
-ARG NEXT_BUILD_WORKERS=2
+# heap. Default = 1 worker × 2 GB ≈ 2 GB peak — the safest setting for tiny VMs
+# (just slower). Faster on a bigger machine: --build-arg NEXT_BUILD_WORKERS=4.
+ARG NEXT_BUILD_WORKERS=1
 ARG NODE_BUILD_MEMORY=2048
 ENV NEXT_BUILD_WORKERS=${NEXT_BUILD_WORKERS}
 ENV NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_MEMORY}"
