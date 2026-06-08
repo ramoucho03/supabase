@@ -52,6 +52,12 @@ CMD ["pnpm", "dev:studio"]
 # Compile Next.js
 FROM dev AS builder
 
+# Give Node plenty of heap headroom so `next build` doesn't OOM on small servers
+# (this is the #1 cause of the build dying with exit 1 on a 1–4 GB VM). The
+# installer adds swap; this lets Node actually grow into it. Override if needed:
+#   docker build --build-arg NODE_BUILD_MEMORY=6144 ...
+ARG NODE_BUILD_MEMORY=4096
+ENV NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_MEMORY}"
 RUN pnpm --filter studio exec next build
 
 # Copy only compiled code and dependencies

@@ -35,16 +35,38 @@ En plus de la stack Supabase standard (Postgres, Auth, Storage, Realtime, Kong, 
 
 ### Installation de A à Z
 
+Sur une **VM fraîche Ubuntu/Debian**, de zéro :
+
 ```bash
-# 1. Cloner le fork COMPLET sur le serveur (le script a besoin de apps/studio pour builder Studio)
-git clone <url-de-ton-fork> supabase
+# 1. git n'est pas toujours préinstallé sur une VM neuve
+sudo apt-get update && sudo apt-get install -y git
+
+# 2. Cloner le fork COMPLET (le script a besoin de apps/studio pour builder Studio).
+#    Clone superficiel = plus rapide ; on ne prend que la branche master.
+git clone -b master --single-branch --depth 1 https://github.com/ramoucho03/supabase.git
 cd supabase
 
-# 2a. Mode local / IP — certificat auto-signé, dashboard sur http://<ip-serveur>:8000
+# 3a. Mode local / IP — certificat auto-signé, dashboard sur http://<ip-serveur>:8000
 sudo bash docker/install.sh
 
-# 2b. Ou avec un domaine — vrai TLS Let's Encrypt
-sudo bash docker/install.sh --domain supa.exemple.com --email toi@exemple.com
+# 3b. Ou avec un domaine — vrai TLS Let's Encrypt
+#     (fais d'abord pointer l'enregistrement DNS A du domaine vers l'IP du serveur)
+sudo DOMAIN=supa.exemple.com EMAIL=toi@exemple.com bash docker/install.sh
+```
+
+**Variantes utiles** (à ajouter à la commande `install.sh`) :
+
+```bash
+sudo bash docker/install.sh -y                       # zéro question (mot de passe auto-généré)
+sudo bash docker/install.sh --user admin --password 'MonMotDePasse'   # login choisi (évite $ et \)
+sudo bash docker/install.sh --studio-image ghcr.io/<owner>/supabase-studio:fork   # petit serveur : ne build pas, pull une image
+```
+
+**Après l'installation :**
+
+```bash
+cat docker/ACCESS-CREDENTIALS.txt        # revoir l'URL, le login et le mot de passe à tout moment
+cd docker && sudo docker compose ps      # état des conteneurs (logs : sudo docker compose logs -f)
 ```
 
 Au démarrage, le script **te demande le nom d'utilisateur et le mot de passe** souhaités pour le dashboard (laisse le mot de passe vide pour en générer un fort ; évite `$` et `\`). Tu peux aussi les fournir en non-interactif via `--user` / `--password` (ou les variables `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`), et `-y` pour ne rien demander.

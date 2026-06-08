@@ -429,8 +429,13 @@ build_and_up() {
     "${COMPOSE[@]}" "${PROFILE_ARGS[@]}" pull
     "${COMPOSE[@]}" "${PROFILE_ARGS[@]}" up -d
   else
-    log "Building Studio from source and starting the stack (first build can take several minutes)"
-    DOCKER_BUILDKIT=1 "${COMPOSE[@]}" "${PROFILE_ARGS[@]}" up -d --build
+    # Build first (clean, streamed output) THEN start. Doing `up -d --build` in
+    # one step interleaves the build log with Compose's live status, which hides
+    # the real error if the build fails. Separating them keeps failures readable.
+    log "Building Studio from source (first build can take several minutes)…"
+    DOCKER_BUILDKIT=1 "${COMPOSE[@]}" "${PROFILE_ARGS[@]}" build
+    log "Starting the stack"
+    "${COMPOSE[@]}" "${PROFILE_ARGS[@]}" up -d
   fi
   ok "Containers started"
 }
