@@ -19,9 +19,20 @@
 #   7. Prints AND saves every URL, login, password and secret to
 #      docker/ACCESS-CREDENTIALS.txt (chmod 600).
 #
-# Run as root from the FULL repo (apps/studio must be present), e.g.:
-#   bash docker/install.sh
-#   DOMAIN=supa.example.com EMAIL=you@example.com bash docker/install.sh
+# BEGINNER QUICK START — on a fresh Ubuntu/Debian server, from the cloned repo:
+#   sudo bash docker/install.sh
+# Answer the two short prompts (or just press Enter for defaults) and wait. When
+# it finishes it prints your dashboard URL, username and password (also saved to
+# docker/ACCESS-CREDENTIALS.txt). Nothing else to do.
+#
+# With your own domain + automatic HTTPS:
+#   sudo DOMAIN=supa.example.com EMAIL=you@example.com bash docker/install.sh
+# Fully unattended (no prompts at all, password auto-generated):
+#   sudo bash docker/install.sh -y
+# Small server (skip the on-host build, pull a prebuilt dashboard image):
+#   sudo bash docker/install.sh --studio-image ghcr.io/<owner>/supabase-studio:fork
+#
+# Run from the FULL repo (apps/studio must be present to build Studio), e.g.:
 #   bash docker/install.sh --user admin --password 's3cret' --domain supa.example.com --email you@example.com
 #
 # Flags / env vars:
@@ -55,6 +66,30 @@ log()  { printf "${C_CYN}==>${C_RESET} ${C_B}%s${C_RESET}\n" "$*"; }
 ok()   { printf "${C_GRN}  ✓${C_RESET} %s\n" "$*"; }
 warn() { printf "${C_YLW}  ! %s${C_RESET}\n" "$*"; }
 die()  { printf "${C_RED}✗ %s${C_RESET}\n" "$*" >&2; exit 1; }
+hr()   { printf "${C_CYN}%s${C_RESET}\n" "──────────────────────────────────────────────────────────────────────"; }
+
+# Numbered, top-level progress so a beginner can see how far along we are and,
+# if something fails, exactly which phase broke (CURRENT_STEP).
+STEP_NUM=0; STEP_TOTAL=6; CURRENT_STEP="starting up"
+step() {
+  STEP_NUM=$((STEP_NUM + 1)); CURRENT_STEP="$*"
+  printf "\n${C_CYN}==> [%s/%s]${C_RESET} ${C_B}%s${C_RESET}\n" "$STEP_NUM" "$STEP_TOTAL" "$*"
+}
+
+# Friendly failure message instead of a bare set -e abort.
+on_error() {
+  local line="${1:-?}"
+  printf "\n${C_RED}✗ Installation stopped while: %s (line %s)${C_RESET}\n" "$CURRENT_STEP" "$line" >&2
+  printf "${C_YLW}You can almost always just run it again — it keeps your secrets and resumes:${C_RESET}\n" >&2
+  printf "    sudo bash docker/install.sh\n" >&2
+  printf "${C_YLW}Common fixes:${C_RESET}\n" >&2
+  printf "  • Studio build ran out of memory on a small server → pull a prebuilt image instead:\n" >&2
+  printf "      sudo bash docker/install.sh --studio-image ghcr.io/<owner>/supabase-studio:fork\n" >&2
+  printf "  • See what went wrong in the logs:\n" >&2
+  printf "      cd %s && %s logs --tail=80\n" "${DOCKER_DIR:-docker}" "${COMPOSE[*]:-docker compose}" >&2
+  exit 1
+}
+trap 'on_error $LINENO' ERR
 
 # ----------------------------------------------------------------------------
 # Args
@@ -106,10 +141,16 @@ else
   [ -f "$DOCKER_DIR/docker-compose.studio-image.yml" ] || die "docker-compose.studio-image.yml missing."
 fi
 
-# Root / sudo
-if [ "$(id -u)" -eq 0 ]; then SUDO=""; else
-  command -v sudo >/dev/null 2>&1 || die "Run as root or install sudo."
-  SUDO="sudo"
+# Root / sudo. SUDO is used as a bare prefix in simple commands ($SUDO apt ...);
+# SUDO_ARR is the array-safe form for building command arrays (Docker Compose).
+# REAL_USER is the human running this (so we can add them to the docker group).
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=""; SUDO_ARR=()
+  REAL_USER="${SUDO_USER:-root}"
+else
+  command -v sudo >/dev/null 2>&1 || die "Run as root (recommended: 'sudo bash docker/install.sh') or install sudo."
+  SUDO="sudo"; SUDO_ARR=(sudo)
+  REAL_USER="$(id -un)"
 fi
 
 cd "$DOCKER_DIR"
@@ -184,13 +225,20 @@ install_deps() {
   ok "Compose plugin ready ($(docker compose version --short 2>/dev/null))"
   if docker buildx version >/dev/null 2>&1; then ok "buildx ready"; else warn "buildx unavailable — classic builder will be used (slower)."; fi
 
-  # Daemon running?
-  if ! docker info >/dev/null 2>&1; then
+  # Daemon running? (use $SUDO so this also works for a non-root user whose
+  # account isn't in the docker group yet on a fresh install.)
+  if ! $SUDO docker info >/dev/null 2>&1; then
     log "Starting Docker daemon"
     $SUDO systemctl enable --now docker 2>/dev/null || $SUDO service docker start 2>/dev/null || true
-    docker info >/dev/null 2>&1 || die "Docker daemon is not running."
+    $SUDO docker info >/dev/null 2>&1 || die "Docker daemon is not running."
   fi
   ok "Docker daemon is running"
+
+  # Let the human run plain 'docker ...' after a re-login (we keep using sudo now).
+  if [ -n "$SUDO" ] && [ "$REAL_USER" != "root" ] && ! id -nG "$REAL_USER" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+    $SUDO usermod -aG docker "$REAL_USER" 2>/dev/null \
+      && warn "Added '$REAL_USER' to the 'docker' group — log out and back in to run docker without sudo."
+  fi
 }
 
 # ----------------------------------------------------------------------------
@@ -206,12 +254,18 @@ maybe_swap() {
   if [ "$mem_kb" -gt 0 ] && [ "$mem_kb" -lt 6291456 ] && [ "$swap_kb" -lt 2097152 ]; then
     if [ ! -f /swapfile ]; then
       log "RAM is $((mem_kb/1024)) MB — creating an 8G swapfile so the Studio build is not OOM-killed (use --no-swap to skip, or --studio-image to avoid building)"
-      $SUDO fallocate -l 8G /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none
-      $SUDO chmod 600 /swapfile
-      $SUDO mkswap /swapfile >/dev/null
-      $SUDO swapon /swapfile
-      grep -q '/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
-      ok "8G swap enabled"
+      # Best-effort: swap can't be enabled inside some VMs/containers (LXC), so a
+      # failure here must never abort the install — just warn and move on.
+      if { $SUDO fallocate -l 8G /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none; } \
+        && $SUDO chmod 600 /swapfile \
+        && $SUDO mkswap /swapfile >/dev/null 2>&1 \
+        && $SUDO swapon /swapfile 2>/dev/null; then
+        grep -q '/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+        ok "8G swap enabled"
+      else
+        $SUDO rm -f /swapfile 2>/dev/null || true
+        warn "Could not enable swap on this host (common in containers/LXC). Continuing — if the build is OOM-killed, use --studio-image to skip building."
+      fi
     else
       warn "/swapfile already exists ($((swap_kb/1024)) MB swap total) — not creating another. If the build still OOMs, add more swap or use --studio-image."
     fi
@@ -354,9 +408,9 @@ prepare_dirs() {
 # 5. Build + up + wait
 # ----------------------------------------------------------------------------
 if [ "$STUDIO_MODE" = "image" ]; then
-  COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.studio-image.yml)
+  COMPOSE=("${SUDO_ARR[@]}" docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.studio-image.yml)
 else
-  COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.studio-build.yml)
+  COMPOSE=("${SUDO_ARR[@]}" docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.studio-build.yml)
 fi
 PROFILE_ARGS=()
 [ "$ENABLE_FTPS" -eq 1 ] && PROFILE_ARGS=(--profile ftps)
@@ -377,7 +431,7 @@ wait_healthy() {
   log "Waiting for services to become healthy"
   local name="$1" tries="${2:-120}" i status
   for i in $(seq 1 "$tries"); do
-    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name" 2>/dev/null || echo missing)"
+    status="$($SUDO docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name" 2>/dev/null || echo missing)"
     case "$status" in
       healthy|running) ok "$name: $status"; return 0 ;;
       missing) sleep 3 ;;
@@ -490,23 +544,90 @@ print_summary() {
   printf "${C_YLW}Open these ports on your cloud firewall/security group if not already: 80, 443, 8000, %s%s${C_RESET}\n" \
     "$sftp_port" "$([ "$ENABLE_FTPS" -eq 1 ] && echo ', 21, 40000-40009')"
   [ -n "$DOMAIN" ] && printf "${C_YLW}DNS: make sure %s has an A record pointing to %s for TLS to be issued.${C_RESET}\n" "$DOMAIN" "$PUBLIC_IP"
+
+  # Best-effort reachability probe so the user knows it's actually up. No -f:
+  # any HTTP response (even 401/404 from the gateway) means the server answered.
+  local reachable=0
+  if curl -sS -m 5 -o /dev/null "http://localhost:8000" 2>/dev/null; then reachable=1; fi
+
+  echo
+  hr
+  if [ "$reachable" -eq 1 ]; then
+    printf "${C_GRN}${C_B}  ✅  Supabase is ready — open the dashboard and log in${C_RESET}\n"
+  else
+    printf "${C_YLW}${C_B}  ⏳  Supabase started — the dashboard may need another minute to warm up${C_RESET}\n"
+  fi
+  hr
+  printf "  ${C_B}Dashboard${C_RESET} : %s\n" "$PUBLIC_URL"
+  [ -z "$DOMAIN" ] || printf "              (or http://%s:8000 directly if DNS/TLS isn't ready yet)\n" "$PUBLIC_IP"
+  printf "  ${C_B}Username${C_RESET}  : %s\n" "$du"
+  printf "  ${C_B}Password${C_RESET}  : %s\n" "$dp"
+  echo
+  printf "  All keys & secrets saved to: ${C_B}%s${C_RESET}\n" "$out"
+  printf "  Next: log in, then open ${C_B}Sites${C_RESET} to host a front-end, or ${C_B}Edge Functions${C_RESET} to deploy code.\n"
+  hr
+}
+
+# ----------------------------------------------------------------------------
+# Welcome + preflight (so a first-timer knows what's about to happen)
+# ----------------------------------------------------------------------------
+welcome() {
+  hr
+  printf "${C_B}  Supabase self-hosted — guided installer${C_RESET}\n"
+  hr
+  echo "  This sets up everything on this server automatically:"
+  echo "    • Installs Docker and all system dependencies"
+  echo "    • Generates every password, API key and secret for you"
+  if [ "$STUDIO_MODE" = "build" ]; then
+    echo "    • Builds the dashboard from source, then starts the whole stack"
+  else
+    echo "    • Pulls a prebuilt dashboard image, then starts the whole stack"
+  fi
+  echo "    • Prints your dashboard URL, username and password at the end"
+  echo
+  if [ -n "$DOMAIN" ]; then
+    echo "  Mode: public domain '${DOMAIN}' (automatic HTTPS via Let's Encrypt)."
+  else
+    echo "  Mode: local/IP (no domain given). The dashboard will be on port 8000."
+    echo "        Tip: re-run with DOMAIN=your.domain EMAIL=you@example.com for HTTPS."
+  fi
+  echo "  Time:  usually 5–15 min on a fresh server (the build is the slow part)."
+  echo "  Safe to leave running — it won't ask anything else after the first prompt."
+  hr
+}
+
+# Non-fatal sanity checks with friendly warnings.
+preflight() {
+  # Disk: a from-source build needs several GB of free space.
+  local free_kb free_gb
+  free_kb="$(df -Pk "$DOCKER_DIR" 2>/dev/null | awk 'NR==2{print $4}')"
+  if [ -n "${free_kb:-}" ]; then
+    free_gb=$((free_kb / 1024 / 1024))
+    if [ "$STUDIO_MODE" = "build" ] && [ "$free_gb" -lt 10 ]; then
+      warn "Only ${free_gb} GB free on disk. The Studio build may need ~10 GB — consider freeing space or using --studio-image."
+    fi
+  fi
+  # OS: this installer automates apt-based distros (Ubuntu/Debian).
+  if ! command -v apt-get >/dev/null 2>&1; then
+    warn "Non apt-based system detected — package install is best-effort. Ubuntu/Debian is recommended."
+  fi
 }
 
 # ----------------------------------------------------------------------------
 # Run
 # ----------------------------------------------------------------------------
-log "Self-hosted Supabase (fork) — autonomous install starting"
-prompt_credentials
-install_deps
+welcome
+preflight
+step "Dashboard login";                    prompt_credentials
+step "Installing system dependencies";      install_deps
 maybe_swap
-configure_env
-prepare_dirs
-build_and_up
+step "Generating secrets & configuration";  configure_env
+step "Preparing host directories";          prepare_dirs
+step "Building & starting the stack (the first build can take several minutes)"; build_and_up
 open_firewall
+step "Waiting for services to be ready"
 wait_healthy supabase-db 60 || true
 wait_healthy supabase-kong 80 || true
 wait_healthy supabase-studio 120 || true
 wait_healthy supabase-nginx 40 || true
-echo
-log "Done."
 print_summary

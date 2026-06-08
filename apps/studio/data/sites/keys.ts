@@ -4,4 +4,9 @@ export const sitesKeys = {
     ['projects', projectRef, 'sites', slug] as const,
   files: (projectRef: string | undefined, slug: string | undefined) =>
     ['projects', projectRef, 'sites', slug, 'files'] as const,
+  fileContent: (
+    projectRef: string | undefined,
+    slug: string | undefined,
+    path: string | undefined
+  ) => ['projects', projectRef, 'sites', slug, 'files', path] as const,
 }

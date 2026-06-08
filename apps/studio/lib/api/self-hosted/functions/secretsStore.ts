@@ -40,7 +40,7 @@ function digest(value: string): string {
 export class FileSystemFunctionsSecretsStore {
   private readonly envPath: string
 
-  constructor(private folderPath: string) {
+  constructor(folderPath: string) {
     this.envPath = path.join(folderPath, '.env')
   }
 
